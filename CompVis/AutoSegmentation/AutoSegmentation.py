@@ -5,17 +5,17 @@ from slicer.ScriptedLoadableModule import *
 import logging
 
 #
-# CompVisPython
+# AutoSegmentation
 #
 
-class CompVisPython(ScriptedLoadableModule):
+class AutoSegmentation(ScriptedLoadableModule):
   """Uses ScriptedLoadableModule base class, available at:
   https://github.com/Slicer/Slicer/blob/master/Base/Python/slicer/ScriptedLoadableModule.py
   """
 
   def __init__(self, parent):
     ScriptedLoadableModule.__init__(self, parent)
-    self.parent.title = "CompVisPython" # TODO make this more human readable by adding spaces
+    self.parent.title = "AutoSegmentation" # TODO make this more human readable by adding spaces
     self.parent.categories = ["Examples"]
     self.parent.dependencies = []
     self.parent.contributors = ["Thomas Tramberger (TU Wien)"] # replace with "Firstname Lastname (Organization)"
@@ -29,10 +29,10 @@ class CompVisPython(ScriptedLoadableModule):
 """ # replace with organization, grant and thanks.
 
 #
-# CompVisPythonWidget
+# AutoSegmentationWidget
 #
 
-class CompVisPythonWidget(ScriptedLoadableModuleWidget):
+class AutoSegmentationWidget(ScriptedLoadableModuleWidget):
   """Uses ScriptedLoadableModuleWidget base class, available at:
   https://github.com/Slicer/Slicer/blob/master/Base/Python/slicer/ScriptedLoadableModule.py
   """
@@ -127,16 +127,16 @@ class CompVisPythonWidget(ScriptedLoadableModuleWidget):
     self.applyButton.enabled = self.inputSelector.currentNode() and self.outputSelector.currentNode()
 
   def onApplyButton(self):
-    logic = CompVisPythonLogic()
+    logic = AutoSegmentationLogic()
     enableScreenshotsFlag = self.enableScreenshotsFlagCheckBox.checked
     imageThreshold = self.imageThresholdSliderWidget.value
     logic.run(self.inputSelector.currentNode(), self.outputSelector.currentNode(), imageThreshold, enableScreenshotsFlag)
 
 #
-# CompVisPythonLogic
+# AutoSegmentationLogic
 #
 
-class CompVisPythonLogic(ScriptedLoadableModuleLogic):
+class AutoSegmentationLogic(ScriptedLoadableModuleLogic):
   """This class should implement all the actual
   computation done by your module.  The interface
   should be such that other python code can import
@@ -227,14 +227,14 @@ class CompVisPythonLogic(ScriptedLoadableModuleLogic):
 
     # Capture screenshot
     if enableScreenshots:
-      self.takeScreenshot('CompVisPythonTest-Start','MyScreenshot',-1)
+      self.takeScreenshot('AutoSegmentationTest-Start','MyScreenshot',-1)
 
     logging.info('Processing completed')
 
     return True
 
 
-class CompVisPythonTest(ScriptedLoadableModuleTest):
+class AutoSegmentationTest(ScriptedLoadableModuleTest):
   """
   This is the test case for your scripted module.
   Uses ScriptedLoadableModuleTest base class, available at:
@@ -250,9 +250,9 @@ class CompVisPythonTest(ScriptedLoadableModuleTest):
     """Run as few or as many tests as needed here.
     """
     self.setUp()
-    self.test_CompVisPython1()
+    self.test_AutoSegmentation1()
 
-  def test_CompVisPython1(self):
+  def test_AutoSegmentation1(self):
     """ Ideally you should have several levels of tests.  At the lowest level
     tests should exercise the functionality of the logic with different inputs
     (both valid and invalid).  At higher levels your tests should emulate the
@@ -284,6 +284,6 @@ class CompVisPythonTest(ScriptedLoadableModuleTest):
     self.delayDisplay('Finished with download and loading')
 
     volumeNode = slicer.util.getNode(pattern="FA")
-    logic = CompVisPythonLogic()
+    logic = AutoSegmentationLogic()
     self.assertIsNotNone( logic.hasImageData(volumeNode) )
     self.delayDisplay('Test passed!')
