@@ -1,65 +1,95 @@
 import os
 import unittest
-import vtk, qt, ctk, slicer
+import vtk
+import qt
+import ctk
+import slicer
 from slicer.ScriptedLoadableModule import *
 import logging
 import dicom
+import numpy
 
 #
 # AutoSegmentation
 #
 
-class AutoSegmentation(ScriptedLoadableModule):
-  """Uses ScriptedLoadableModule base class, available at:
-  https://github.com/Slicer/Slicer/blob/master/Base/Python/slicer/ScriptedLoadableModule.py
-  """
 
+class AutoSegmentation(ScriptedLoadableModule):
   def __init__(self, parent):
     ScriptedLoadableModule.__init__(self, parent)
-    self.parent.title = "AutoSegmentation" # TODO make this more human readable by adding spaces
+    # TODO make this more human readable by adding spaces
+    self.parent.title = "AutoSegmentation"
     self.parent.categories = ["Examples"]
     self.parent.dependencies = []
-    self.parent.contributors = ["Thomas Tramberger (TU Wien)"] # replace with "Firstname Lastname (Organization)"
+    self.parent.contributors = ["Thomas Tramberger (TU Wien)"]
     self.parent.helpText = """
-    This is an example of scripted loadable module bundled in an extension.
-    It performs a simple thresholding on the input volume and optionally captures a screenshot.
+    This is an example of scripted loadable module bundled in an extension. It performs a simple thresholding on the input volume and optionally captures a screenshot.
     """
     self.parent.acknowledgementText = """
     This file was originally developed by Jean-Christophe Fillion-Robin, Kitware Inc.
     and Steve Pieper, Isomics, Inc. and was partially funded by NIH grant 3P41RR013218-12S1.
-""" # replace with organization, grant and thanks.
+"""  # replace with organization, grant and thanks.
 
 #
 # AutoSegmentationWidget
 #
 
+
 class AutoSegmentationWidget(ScriptedLoadableModuleWidget):
   """Uses ScriptedLoadableModuleWidget base class, available at:
   https://github.com/Slicer/Slicer/blob/master/Base/Python/slicer/ScriptedLoadableModule.py
   """
-
   def setup(self):
+    # gui for testing and reloading, /todo remove at end
     ScriptedLoadableModuleWidget.setup(self)
 
+    # Collapsible button
+    self.collapsibleButton = ctk.ctkCollapsibleButton()
+    self.collapsibleButton.text = "AutoSegmentation"
+    self.layout.addWidget(self.collapsibleButton)
+
+    # Layout for path input and process button
+    self.formLayout = qt.QFormLayout(self.collapsibleButton)
+
+    # Path input for dicom data to analyze
+    self.inputPath = qt.QFileDialog()
+    self.inputPath.setFileMode(qt.QFileDialog.Directory)
+
+    #self.inputPathCtk = ctk.ctkDICOMAppWidget()
+    
+    self.formLayout.addWidget(self.inputPath)
+    #self.formLayout.addWidget(self.inputPathCtk)
+
+    # add vertical spacer
+    self.layout.addStretch(1)
+
+    # connect directory widget with function
+    self.inputPath.connect('accepted()', self.acceptInputPath)
+    #self.inputPathCtk.connect('onFileIndexed(const QString &filePath)', self.onModelSelectedInput)
+
+  def acceptInputPath(self):
+    logging.info('Path accepted')
+    pathToDICOM = self.inputPath.directory().absolutePath()
+    logging.info(pathToDICOM)
+    filesDCM = []
+    for dirName, subdirList, fileList in os.walk(pathToDICOM):
+    	for filename in fileList:
+    		if ".dcm" in filename.lower():
+    			filesDCM.append(os.path.join(dirName, filename))
+
+    refDs = dicom.read_file(filesDCM[0])   
+
+
+  def onModelSelectedInput(self):
+  	logging.info('Model selected')
 
 #
 # AutoSegmentationLogic
 #
 
 class AutoSegmentationLogic(ScriptedLoadableModuleLogic):
-  """This class should implement all the actual
-  computation done by your module.  The interface
-  should be such that other python code can import
-  this class and make use of the functionality without
-  requiring an instance of the Widget.
-  Uses ScriptedLoadableModuleLogic base class, available at:
-  https://github.com/Slicer/Slicer/blob/master/Base/Python/slicer/ScriptedLoadableModule.py
-  """
-
-  #read all dicom files of directory, do not use read_dicomdir
-  #dirname = 'D:\DICOM\DOI\UCSF-BR-01\1.3.6.1.4.1.14519.5.2.1.7695.2311.318556327218219032882988916934\1.3.6.1.4.1.14519.5.2.1.7695.2311.274264228730564772023224128448'
-  #files = os.listdir(dirname)
-  #ds_list = [dicom.read_files(os.path.join(dirname, filename)) for filename in files]
+  def something():
+	print "asdf"
 
 
 
@@ -74,6 +104,5 @@ class AutoSegmentationTest(ScriptedLoadableModuleTest):
   https://github.com/Slicer/Slicer/blob/master/Base/Python/slicer/ScriptedLoadableModule.py
   """
 
-  #def setUp(self):
+  # def setUp(self):
    # slicer.mrmlScene.Clear(0)
-
