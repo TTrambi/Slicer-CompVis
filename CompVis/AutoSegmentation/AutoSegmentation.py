@@ -64,24 +64,34 @@ class AutoSegmentationWidget(ScriptedLoadableModuleWidget):
     self.layout.addStretch(1)
 
     # connect directory widget with function
-    self.inputPath.connect('accepted()', self.acceptInputPath)
+    self.inputPath.connect('accepted()', self.readInData)
     #self.inputPathCtk.connect('onFileIndexed(const QString &filePath)', self.onModelSelectedInput)
 
-  def acceptInputPath(self):
-    logging.info('Path accepted')
+  def readInData(self):
     pathToDICOM = self.inputPath.directory().absolutePath()
-    logging.info(pathToDICOM)
+    logging.info('Path set to:' + pathToDICOM)
     filesDCM = []
     for dirName, subdirList, fileList in os.walk(pathToDICOM):
-    	for filename in fileList:
-    		if ".dcm" in filename.lower():
-    			filesDCM.append(os.path.join(dirName, filename))
+      for filename in fileList:
+        if ".dcm" in filename.lower():
+          filesDCM.append(os.path.join(dirName, filename))
 
-    refDs = dicom.read_file(filesDCM[0])   
+    #load all dicom data 
+    dicomData = []
+    for files in filesDCM:
+      dicomData.append(dicom.read_file(files)) 
+
+   	#sort dicom data by instance number
+    dicomData.sort(key=lambda dicomData: dicomData.InstanceNumber)
 
 
   def onModelSelectedInput(self):
   	logging.info('Model selected')
+
+  def separateData(self, filesDCM):
+  	logging.info('Separating Data')
+  	#first sort by acquisition number then sort by 
+
 
 #
 # AutoSegmentationLogic
