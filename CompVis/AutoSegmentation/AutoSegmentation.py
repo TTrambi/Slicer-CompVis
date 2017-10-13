@@ -70,11 +70,29 @@ class AutoSegmentationWidget(ScriptedLoadableModuleWidget):
   def readInData(self):
     pathToDICOM = self.inputPath.directory().absolutePath()
     logging.info('Path set to:' + pathToDICOM)
+    
+    # reader = vtk.vtkDICOMImageReader()
+    # reader.SetDirectoryName(pathToDICOM)
+    # reader.Update()
+    
+    # print reader
+
+    # Load dimensions using `GetDataExtent`
+    #_extent = reader.GetDataExtent()
+    #ConstPixelDims = [_extent[1]-_extent[0]+1, _extent[3]-_extent[2]+1, _extent[5]-_extent[4]+1]
+
+    # Load spacing values
+    #ConstPixelSpacing = reader.GetPixelSpacing()
+
+
+
+
     filesDCM = []
     for dirName, subdirList, fileList in os.walk(pathToDICOM):
       for filename in fileList:
         if ".dcm" in filename.lower():
           filesDCM.append(os.path.join(dirName, filename))
+
 
     #load all dicom data 
     dicomData = []
@@ -83,6 +101,28 @@ class AutoSegmentationWidget(ScriptedLoadableModuleWidget):
 
    	#sort dicom data by instance number
     dicomData.sort(key=lambda dicomData: dicomData.InstanceNumber)
+
+    #separate data to their contrast volumes
+    dicomDataContrastVolumes = []
+    firstContrastVolume = []
+    dicomDataContrastVolumes.append(firstContrastVolume)
+    contrastVolumeIndexHelper = 0
+    for i in range(0,len(dicomData)-1):
+      if dicomData[i].SliceLocation < dicomData[i+1].SliceLocation:
+        dicomDataContrastVolumes[contrastVolumeIndexHelper].append(dicomData[i])
+      else:
+        dicomDataContrastVolumes[contrastVolumeIndexHelper].append(dicomData[i])
+        contrastVolumeIndexHelper = contrastVolumeIndexHelper+1
+        nextContrastVolume = []
+        dicomDataContrastVolumes.append(nextContrastVolume)
+    #assign last element
+    dicomDataContrastVolumes[contrastVolumeIndexHelper].append(dicomData[-1])
+
+    logging.info("Dicom data seperated into %i sets.", len(dicomDataContrastVolumes))
+
+    #convert sets into numpy arrays to modify voxels in a new vtkMRMLScalarVolumeNode
+    constPixelDims = (int(dicomData[0].Rows), int(dicomData[0].Columns), len(dicomDataContrastVolumes[0]))
+    constPixelSpacing = (float(dicomData[0].PixelSpacing[0]), float(dicomData[0].PixelSpacing[1]),float(dicomData[0].SliceThickness))
 
 
   def onModelSelectedInput(self):
