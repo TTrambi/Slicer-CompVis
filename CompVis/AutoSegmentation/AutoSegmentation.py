@@ -12,8 +12,6 @@ import numpy
 #
 # AutoSegmentation
 #
-
-
 class AutoSegmentation(ScriptedLoadableModule):
   def __init__(self, parent):
     ScriptedLoadableModule.__init__(self, parent)
@@ -33,8 +31,6 @@ class AutoSegmentation(ScriptedLoadableModule):
 #
 # AutoSegmentationWidget
 #
-
-
 class AutoSegmentationWidget(ScriptedLoadableModuleWidget):
   """Uses ScriptedLoadableModuleWidget base class, available at:
   https://github.com/Slicer/Slicer/blob/master/Base/Python/slicer/ScriptedLoadableModule.py
@@ -120,33 +116,71 @@ class AutoSegmentationWidget(ScriptedLoadableModuleWidget):
 
     logging.info("Dicom data seperated into %i sets.", len(dicomDataContrastVolumes))
 
+
+    #convert sets into numpy Arrays
+    self.dicomNumpyArrays = []
+    for dicomSeries in dicomDataContrastVolumes:
+      self.dicomNumpyArrays.append(self.createNumpyArray(dicomSeries))
+
+    logging.info("Numpy Arrays created")
+
+    self.initializeNodeArrays()
+
+    logging.info("SegmentationLabel initialized")
+
+    print self.nodeArraySegmentCADLabel
+
+
+
+  def createNumpyArray(self, dicomSeries):
     #convert sets into numpy arrays to modify voxels in a new vtkMRMLScalarVolumeNode
-    constPixelDims = (int(dicomData[0].Rows), int(dicomData[0].Columns), len(dicomDataContrastVolumes[0]))
-    constPixelSpacing = (float(dicomData[0].PixelSpacing[0]), float(dicomData[0].PixelSpacing[1]),float(dicomData[0].SliceThickness))
+    constPixelDims = (int(dicomSeries[0].Rows), int(dicomSeries[0].Columns), len(dicomSeries))
+    constPixelSpacing = (float(dicomSeries[0].PixelSpacing[0]), float(dicomSeries[0].PixelSpacing[1]),float(dicomSeries[0].SliceThickness))
+    numpyArray = numpy.zeros(constPixelDims, dtype=dicomSeries[0].pixel_array.dtype)
+    for dicomData in dicomSeries:
+      numpyArray[:,:, dicomSeries.index(dicomData)] = dicomData.pixel_array
+    return numpyArray
+
+  def initializeNodeArrays (self):
+    # Computes percentage increase from baseline (pre-contrast) at each voxel for each volume as numpy arrays.
+    # Initializes a numpy array of zeroes as numpy.int16 vtkShortArray for the SegmentCAD label map output.
+      
+    # Initial Rise at each voxel (percentage increase from pre-contrast to first post-contrast)
+    self.nodeArrayInitialRise = ((self.dicomNumpyArrays[1]).__truediv__(self.dicomNumpyArrays[0]+1.0))-1.0
+    # Compute slope at each voxel from first to fourth volume to determine curve type
+    self.slopeArray1_4 = (self.dicomNumpyArrays[-1] - self.dicomNumpyArrays[1]).__truediv__(self.dicomNumpyArrays[1]+1.0)
+    # Initialize SegmentCAD label map as numpy array
+    shape = self.dicomNumpyArrays[0].shape
+    self.nodeArraySegmentCADLabel = numpy.zeros(shape, dtype=numpy.int16)
 
 
-  def onModelSelectedInput(self):
-  	logging.info('Model selected')
-
-  def separateData(self, filesDCM):
-  	logging.info('Separating Data')
-  	#first sort by acquisition number then sort by 
-
+  def arrayProcessing(self):
+    # Create Boolean array, target_voxels, with target voxel indices highlighted as True 
+    # Assigns color to SegmentCAD Label map index if corresponding slope condition is satisfied where target_voxel is True 
+      
+    target_voxels = (self.nodeArrayInitialRise > 0.75) & (self.dicomNumpyArrays[0] > 100)
+  
+    # yellow (Plateau Slope)
+    self.nodeArraySegmentCADLabel[numpy.where( (self.slopeArray1_4 > -0.2) & (self.slopeArray1_4 < 0.2) & (target_voxels) )] = 291
+    
+    # blue (slope of curve1 min = 0.2(default), Persistent Slope)
+    self.nodeArraySegmentCADLabel[numpy.where((self.slopeArray1_4 > 0.2) & (target_voxels))] = 306
+    
+    # red (slope of curve3 max = -0.2(default), Washout Slope )
+    self.nodeArraySegmentCADLabel[numpy.where((self.slopeArray1_4 < -0.2) & (target_voxels))] = 32
 
 #
 # AutoSegmentationLogic
 #
-
 class AutoSegmentationLogic(ScriptedLoadableModuleLogic):
+
   def something():
 	print "asdf"
 
 
-
 #
 # AutoSegmentationLogic
 #
-
 class AutoSegmentationTest(ScriptedLoadableModuleTest):
   """
   This is the test case for your scripted module.
