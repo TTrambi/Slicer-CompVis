@@ -8,6 +8,7 @@ from slicer.ScriptedLoadableModule import *
 import logging
 import dicom
 import numpy
+from vtk.util import numpy_support
 
 #
 # AutoSegmentation
@@ -60,31 +61,47 @@ class AutoSegmentationWidget(ScriptedLoadableModuleWidget):
     self.layout.addStretch(1)
 
     # connect directory widget with function
-    self.inputPath.connect('accepted()', self.readInData)
+    self.inputPath.connect('accepted()', self.createLogic)
     #self.inputPathCtk.connect('onFileIndexed(const QString &filePath)', self.onModelSelectedInput)
 
-  def readInData(self):
+  def createLogic(self):
     pathToDICOM = self.inputPath.directory().absolutePath()
-    logging.info('Path set to:' + pathToDICOM)
+    self.logic = AutoSegmentationLogic(pathToDICOM, 0.75, 0.2, -0.2)
+
+#
+# AutoSegmentationLogic
+#
+class AutoSegmentationLogic(ScriptedLoadableModuleLogic):
+
+  def __init__(self, pathToDICOM, minTreshold, curve1Minimum, curve3Maximum):
+    self.pathToDICOM = pathToDICOM
+    self.minTreshold = minTreshold
+    self.curve1Minimum = curve1Minimum
+    self.curve3Maximum = curve3Maximum
+    logging.info("logic created")
+    logging.info("parameters:")
+    logging.info(pathToDICOM)
+    logging.info(minTreshold)
+    logging.info(curve1Minimum)
+    logging.info(curve3Maximum)
     
-    # reader = vtk.vtkDICOMImageReader()
-    # reader.SetDirectoryName(pathToDICOM)
-    # reader.Update()
-    
-    # print reader
+    self.dicomDataNumpyArrays = self.readData()
+    self.initialRiseArray = self.calcInitialRise()
+    self.slopeArray = self.calcSlope()
+    logging.info("initial rise and slope calculated")
 
-    # Load dimensions using `GetDataExtent`
-    #_extent = reader.GetDataExtent()
-    #ConstPixelDims = [_extent[1]-_extent[0]+1, _extent[3]-_extent[2]+1, _extent[5]-_extent[4]+1]
+    self.targetVoxels = self.getTargetedVoxels()
+    #self.persistenceVoxels = self.getPersistanceVoxels()
+    #self.plateauVoxels = self.getPlateauVoxels()
+    #self.washoutVoxels = self.getWashoutVoxels()
 
-    # Load spacing values
-    #ConstPixelSpacing = reader.GetPixelSpacing()
-
-
+    VTKtargetVoxels = numpy_support.numpy_to_vtk(self.targetVoxels.ravel(), deep=True, array_type=vtk.VTK_FLOAT)
+    VTKtargetVoxels.contour
 
 
+  def readData(self):
     filesDCM = []
-    for dirName, subdirList, fileList in os.walk(pathToDICOM):
+    for dirName, subdirList, fileList in os.walk(self.pathToDICOM):
       for filename in fileList:
         if ".dcm" in filename.lower():
           filesDCM.append(os.path.join(dirName, filename))
@@ -95,7 +112,7 @@ class AutoSegmentationWidget(ScriptedLoadableModuleWidget):
     for files in filesDCM:
       dicomData.append(dicom.read_file(files)) 
 
-   	#sort dicom data by instance number
+    #sort dicom data by instance number
     dicomData.sort(key=lambda dicomData: dicomData.InstanceNumber)
 
     #separate data to their contrast volumes
@@ -116,22 +133,60 @@ class AutoSegmentationWidget(ScriptedLoadableModuleWidget):
 
     logging.info("Dicom data seperated into %i sets.", len(dicomDataContrastVolumes))
 
-
     #convert sets into numpy Arrays
-    self.dicomNumpyArrays = []
+    dicomNumpyArrays = []
     for dicomSeries in dicomDataContrastVolumes:
-      self.dicomNumpyArrays.append(self.createNumpyArray(dicomSeries))
+      dicomNumpyArrays.append(self.createNumpyArray(dicomSeries))
 
-    logging.info("Numpy Arrays created")
+    logging.info("3D Numpy Arrays created")
 
-    self.initializeNodeArrays()
+    return dicomNumpyArrays
 
-    logging.info("SegmentationLabel initialized")
+  # Computes percentage increase from baseline (pre-contrast) at each voxel for each volume as numpy arrays.
+  def calcInitialRise(self):
+    # Initial Rise at each voxel (percentage increase from pre-contrast to first post-contrast)
+    return ((self.dicomDataNumpyArrays[1]).__truediv__(self.dicomDataNumpyArrays[0]+1.0))-1.0
 
-    print self.nodeArraySegmentCADLabel
+  def calcSlope(self):
+    # Compute slope at each voxel from first to fourth volume to determine curve type
+    return (self.dicomDataNumpyArrays[-1] - self.dicomDataNumpyArrays[1]).__truediv__(self.dicomDataNumpyArrays[1]+1.0)
+
+  def getTargetedVoxels(self):
+    targetVoxels = (self.initialRiseArray > self.minTreshold) & (self.dicomDataNumpyArrays[0] > 100)
+    return targetVoxels.astype(bool)
+
+  def getPersistanceVoxels(self):
+    persistenceVoxels = numpy.where((self.slopeArray > self.curve1Minimum) & (self.targetVoxels))
+    return persistenceVoxels.astype(bool)
+
+  def getPlateauVoxels(self):
+    plateuaVoxels = numpy.where( (self.slopeArray > self.curve3Maximum) & (self.slopeArray < self.curve1Minimum) & (self.targetVoxels) )
+    return plateauVoxels.astype(bool)
+
+  def getWashoutVoxels(self):
+    washoutVoxels = numpy.where((self.slopeArray < self.curve3Maximum) & (self.targetVoxels))
+    return washoutVoxels.astype(bool)
 
 
 
+  # def arrayProcessing(self):
+  #   # Create Boolean array, target_voxels, with target voxel indices highlighted as True 
+  #   # Assigns color to SegmentCAD Label map index if corresponding slope condition is satisfied where target_voxel is True 
+      
+  #   target_voxels = (self.nodeArrayInitialRise > self.minTreshold) & (self.dicomNumpyArrays[0] > 100)
+  
+  #   # yellow (Plateau Slope)
+  #   self.nodeArraySegmentCADLabel[numpy.where( (self.slopeArray1_4 > -0.2) & (self.slopeArray1_4 < 0.2) & (target_voxels) )] = 291
+    
+  #   # blue (slope of curve1 min = 0.2(default), Persistent Slope)
+  #   self.nodeArraySegmentCADLabel[numpy.where((self.slopeArray1_4 > 0.2) & (target_voxels))] = 306
+    
+  #   # red (slope of curve3 max = -0.2(default), Washout Slope )
+  #   self.nodeArraySegmentCADLabel[numpy.where((self.slopeArray1_4 < -0.2) & (target_voxels))] = 32
+
+
+
+  ### helper and converter functions ###
   def createNumpyArray(self, dicomSeries):
     #convert sets into numpy arrays to modify voxels in a new vtkMRMLScalarVolumeNode
     constPixelDims = (int(dicomSeries[0].Rows), int(dicomSeries[0].Columns), len(dicomSeries))
@@ -141,41 +196,12 @@ class AutoSegmentationWidget(ScriptedLoadableModuleWidget):
       numpyArray[:,:, dicomSeries.index(dicomData)] = dicomData.pixel_array
     return numpyArray
 
-  def initializeNodeArrays (self):
-    # Computes percentage increase from baseline (pre-contrast) at each voxel for each volume as numpy arrays.
-    # Initializes a numpy array of zeroes as numpy.int16 vtkShortArray for the SegmentCAD label map output.
-      
-    # Initial Rise at each voxel (percentage increase from pre-contrast to first post-contrast)
-    self.nodeArrayInitialRise = ((self.dicomNumpyArrays[1]).__truediv__(self.dicomNumpyArrays[0]+1.0))-1.0
-    # Compute slope at each voxel from first to fourth volume to determine curve type
-    self.slopeArray1_4 = (self.dicomNumpyArrays[-1] - self.dicomNumpyArrays[1]).__truediv__(self.dicomNumpyArrays[1]+1.0)
-    # Initialize SegmentCAD label map as numpy array
-    shape = self.dicomNumpyArrays[0].shape
-    self.nodeArraySegmentCADLabel = numpy.zeros(shape, dtype=numpy.int16)
+  def numpyArraytoNumpyBooleanArray(self, numpyArray):
+    numpyBooleanArray = numpyArray > 0
+    numpyBooleanArray.astype(numpy.Boolean)
 
-
-  def arrayProcessing(self):
-    # Create Boolean array, target_voxels, with target voxel indices highlighted as True 
-    # Assigns color to SegmentCAD Label map index if corresponding slope condition is satisfied where target_voxel is True 
-      
-    target_voxels = (self.nodeArrayInitialRise > 0.75) & (self.dicomNumpyArrays[0] > 100)
-  
-    # yellow (Plateau Slope)
-    self.nodeArraySegmentCADLabel[numpy.where( (self.slopeArray1_4 > -0.2) & (self.slopeArray1_4 < 0.2) & (target_voxels) )] = 291
-    
-    # blue (slope of curve1 min = 0.2(default), Persistent Slope)
-    self.nodeArraySegmentCADLabel[numpy.where((self.slopeArray1_4 > 0.2) & (target_voxels))] = 306
-    
-    # red (slope of curve3 max = -0.2(default), Washout Slope )
-    self.nodeArraySegmentCADLabel[numpy.where((self.slopeArray1_4 < -0.2) & (target_voxels))] = 32
-
-#
-# AutoSegmentationLogic
-#
-class AutoSegmentationLogic(ScriptedLoadableModuleLogic):
-
-  def something():
-	print "asdf"
+  def numpyBooleanArrayToMesh(self, numpyBooleanArray):
+    VTK_data = numpy_support.numpy_to_vtk(numpyBooleanArray.ravel(), deep=True, array_type=vtk.VTK_BOOLEAN)
 
 
 #
