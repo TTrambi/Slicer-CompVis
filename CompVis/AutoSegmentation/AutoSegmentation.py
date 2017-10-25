@@ -90,14 +90,74 @@ class AutoSegmentationLogic(ScriptedLoadableModuleLogic):
     self.slopeArray = self.calcSlope()
     logging.info("initial rise and slope calculated")
 
+    #boolean array with targeted voxels
     self.targetVoxels = self.getTargetedVoxels()
-    #self.persistenceVoxels = self.getPersistanceVoxels()
+    
+    self.persistenceVoxels = self.getPersistanceVoxels()
+
     #self.plateauVoxels = self.getPlateauVoxels()
     #self.washoutVoxels = self.getWashoutVoxels()
 
-    VTKtargetVoxels = numpy_support.numpy_to_vtk(self.targetVoxels.ravel(), deep=True, array_type=vtk.VTK_FLOAT)
-    VTKtargetVoxels.contour
+    #convert numpy to vtkImageData
+    VTKTargetVoxelsImageImport =  vtk.vtkImageImport()
+    array_string = self.persistenceVoxels.tostring()
 
+    VTKTargetVoxelsImageImport.CopyImportVoidPointer(array_string, len(array_string))
+    VTKTargetVoxelsImageImport.SetDataScalarTypeToUnsignedChar()
+    VTKTargetVoxelsImageImport.SetNumberOfScalarComponents(1)
+
+    w, d, h = self.persistenceVoxels.shape
+    VTKTargetVoxelsImageImport.SetDataExtent(0,w-1,0,d-1,0,h-1)
+    VTKTargetVoxelsImageImport.SetWholeExtent(0,w-1,0,d-1,0,h-1)
+
+    VTKTargetVoxelsImageImport.SetDataSpacing(0.5,0.5,2)
+
+    logging.info("imageImporter set up")
+
+    # alphaChannelFunc = vtk.vtkPiecewiseFunction()
+    # alphaChannelFunc.AddPoint(0, 0.0)
+    # alphaChannelFunc.AddPoint(1, 1)
+
+    # colorFunc = vtk.vtkColorTransferFunction()
+    # colorFunc.AddRGBPoint(1, 1.0, 0.0, 0.0)
+
+    # volumeProperty = vtk.vtkVolumeProperty()
+    # volumeProperty.SetColor(colorFunc)
+    # volumeProperty.SetScalarOpacity(alphaChannelFunc)
+
+    # compositeFunction = vtk.vtkVolumeRayCastCompositeFunction()
+
+    # volumeMapper = vtk.vtkVolumeRayCastMapper()
+    # volumeMapper.SetVolumeRayCastFunction(compositeFunction)
+    # volumeMapper.SetInputConnection(dataImporter.GetOutputPort())
+
+    # volume = vtk.vtkVolume()
+    # volume.SetMapper(volumeMapper)
+    # volume.SetProperty(volumeProperty)
+
+
+    threshold = vtk.vtkImageThreshold()
+    threshold.SetInputConnection(VTKTargetVoxelsImageImport.GetOutputPort())
+    threshold.ThresholdByLower(1)
+    threshold.ReplaceInOn()
+    threshold.SetInValue(0)
+    threshold.SetOutValue(1)
+    threshold.Update()
+    
+    dmc = vtk.vtkDiscreteMarchingCubes()
+    dmc.SetInputConnection(threshold.GetOutputPort())
+    dmc.GenerateValues(1,1,1)
+    dmc.Update()
+
+    logging.info("marching curbes applied")
+
+    writer = vtk.vtkSTLWriter()
+    writer.SetInputConnection(dmc.GetOutputPort())
+    writer.SetFileTypeToBinary()
+    writer.SetFileName("test.stl")
+    writer.Write()
+
+    logging.info("finished writing to file")
 
   def readData(self):
     filesDCM = []
@@ -152,20 +212,36 @@ class AutoSegmentationLogic(ScriptedLoadableModuleLogic):
     return (self.dicomDataNumpyArrays[-1] - self.dicomDataNumpyArrays[1]).__truediv__(self.dicomDataNumpyArrays[1]+1.0)
 
   def getTargetedVoxels(self):
-    targetVoxels = (self.initialRiseArray > self.minTreshold) & (self.dicomDataNumpyArrays[0] > 100)
-    return targetVoxels.astype(bool)
+    targetVoxels = numpy.zeros((256,256,60))
+    for x in range(0,255):
+      for y in range(0,255):
+        for z in range(0,59):
+          if (self.initialRiseArray[x,y,z] > self.minTreshold):
+            targetVoxels[x,y,z] = 100
+    return targetVoxels
+
+    #targetVoxels = (self.initialRiseArray > self.minTreshold) & (self.dicomDataNumpyArrays[0] > 100)
+    #return targetVoxels
 
   def getPersistanceVoxels(self):
-    persistenceVoxels = numpy.where((self.slopeArray > self.curve1Minimum) & (self.targetVoxels))
-    return persistenceVoxels.astype(bool)
+    persistenceVoxels = numpy.zeros((256,256,60))
+    for x in range(0,255):
+      for y in range(0,255):
+        for z in range(0,59):
+          if (self.slopeArray[x,y,z] > self.curve3Maximum) & (self.slopeArray[x,y,z] < self.curve1Minimum) & (self.targetVoxels[x,y,z] > 99):
+            persistenceVoxels[x,y,z] = 100
+    return persistenceVoxels
+
+    #persistenceVoxels = numpy.where((self.slopeArray > self.curve1Minimum) & (self.targetVoxels))
+    #return persistenceVoxels
 
   def getPlateauVoxels(self):
     plateuaVoxels = numpy.where( (self.slopeArray > self.curve3Maximum) & (self.slopeArray < self.curve1Minimum) & (self.targetVoxels) )
-    return plateauVoxels.astype(bool)
+    return plateauVoxels
 
   def getWashoutVoxels(self):
     washoutVoxels = numpy.where((self.slopeArray < self.curve3Maximum) & (self.targetVoxels))
-    return washoutVoxels.astype(bool)
+    return washoutVoxels
 
 
 
