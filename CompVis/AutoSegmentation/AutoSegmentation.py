@@ -93,52 +93,33 @@ class AutoSegmentationLogic(ScriptedLoadableModuleLogic):
     #boolean array with targeted voxels
     self.targetVoxels = self.getTargetedVoxels()
     
-    self.persistenceVoxels = self.getPersistanceVoxels()
-
+    #self.persistenceVoxels = self.getPersistanceVoxels()
     #self.plateauVoxels = self.getPlateauVoxels()
     #self.washoutVoxels = self.getWashoutVoxels()
 
+    numpy.savetxt('File.out', self.targetVoxels[:,:,30], delimiter=' ')
+
     #convert numpy to vtkImageData
     VTKTargetVoxelsImageImport =  vtk.vtkImageImport()
-    array_string = self.persistenceVoxels.tostring()
+
+    array_string = self.targetVoxels.tostring()
 
     VTKTargetVoxelsImageImport.CopyImportVoidPointer(array_string, len(array_string))
     VTKTargetVoxelsImageImport.SetDataScalarTypeToUnsignedChar()
     VTKTargetVoxelsImageImport.SetNumberOfScalarComponents(1)
 
-    w, d, h = self.persistenceVoxels.shape
+    w, d, h = self.targetVoxels.shape
     VTKTargetVoxelsImageImport.SetDataExtent(0,w-1,0,d-1,0,h-1)
     VTKTargetVoxelsImageImport.SetWholeExtent(0,w-1,0,d-1,0,h-1)
+    VTKTargetVoxelsImageImport.SetDataSpacing(0.1,0.1,0.2)
 
-    VTKTargetVoxelsImageImport.SetDataSpacing(0.5,0.5,2)
+
 
     logging.info("imageImporter set up")
 
-    # alphaChannelFunc = vtk.vtkPiecewiseFunction()
-    # alphaChannelFunc.AddPoint(0, 0.0)
-    # alphaChannelFunc.AddPoint(1, 1)
-
-    # colorFunc = vtk.vtkColorTransferFunction()
-    # colorFunc.AddRGBPoint(1, 1.0, 0.0, 0.0)
-
-    # volumeProperty = vtk.vtkVolumeProperty()
-    # volumeProperty.SetColor(colorFunc)
-    # volumeProperty.SetScalarOpacity(alphaChannelFunc)
-
-    # compositeFunction = vtk.vtkVolumeRayCastCompositeFunction()
-
-    # volumeMapper = vtk.vtkVolumeRayCastMapper()
-    # volumeMapper.SetVolumeRayCastFunction(compositeFunction)
-    # volumeMapper.SetInputConnection(dataImporter.GetOutputPort())
-
-    # volume = vtk.vtkVolume()
-    # volume.SetMapper(volumeMapper)
-    # volume.SetProperty(volumeProperty)
-
-
     threshold = vtk.vtkImageThreshold()
     threshold.SetInputConnection(VTKTargetVoxelsImageImport.GetOutputPort())
-    threshold.ThresholdByLower(1)
+    threshold.ThresholdByLower(0)
     threshold.ReplaceInOn()
     threshold.SetInValue(0)
     threshold.SetOutValue(1)
@@ -212,23 +193,26 @@ class AutoSegmentationLogic(ScriptedLoadableModuleLogic):
     return (self.dicomDataNumpyArrays[-1] - self.dicomDataNumpyArrays[1]).__truediv__(self.dicomDataNumpyArrays[1]+1.0)
 
   def getTargetedVoxels(self):
-    targetVoxels = numpy.zeros((256,256,60))
-    for x in range(0,255):
-      for y in range(0,255):
-        for z in range(0,59):
-          if (self.initialRiseArray[x,y,z] > self.minTreshold):
-            targetVoxels[x,y,z] = 100
-    return targetVoxels
+    # x, y, z = self.dicomDataNumpyArrays[0].shape
+    # targetVoxels = numpy.zeros((x,y,z))
+    # for x in range(0,x-1):
+    #   for y in range(0,y-1):
+    #     for z in range(0,z-1):
+    #       if (self.initialRiseArray[x,y,z] > self.minTreshold):
+    #         targetVoxels[x,y,z] = self.dicomDataNumpyArrays[0][x,y,z]
+    #       else:
+    #         targetVoxels[x,y,z] = 0
+    # return targetVoxels
 
-    #targetVoxels = (self.initialRiseArray > self.minTreshold) & (self.dicomDataNumpyArrays[0] > 100)
-    #return targetVoxels
+    targetVoxels = (self.initialRiseArray > self.minTreshold) & (self.dicomDataNumpyArrays[0] > 10)
+    return targetVoxels
 
   def getPersistanceVoxels(self):
     persistenceVoxels = numpy.zeros((256,256,60))
     for x in range(0,255):
       for y in range(0,255):
         for z in range(0,59):
-          if (self.slopeArray[x,y,z] > self.curve3Maximum) & (self.slopeArray[x,y,z] < self.curve1Minimum) & (self.targetVoxels[x,y,z] > 99):
+          if (self.slopeArray[x,y,z] > self.curve3Maximum) & (self.slopeArray[x,y,z] < self.curve1Minimum) & (self.targetVoxels[x,y,z] > 100):
             persistenceVoxels[x,y,z] = 100
     return persistenceVoxels
 
