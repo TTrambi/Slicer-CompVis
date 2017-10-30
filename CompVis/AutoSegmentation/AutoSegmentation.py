@@ -97,7 +97,19 @@ class AutoSegmentationLogic(ScriptedLoadableModuleLogic):
     #self.plateauVoxels = self.getPlateauVoxels()
     #self.washoutVoxels = self.getWashoutVoxels()
 
-    numpy.savetxt('File.out', self.targetVoxels[:,:,30], delimiter=' ')
+    print numpy.amax(self.initialRiseArray)
+    print numpy.amin(self.initialRiseArray)
+
+    print numpy.amax(self.slopeArray)
+    print numpy.amin(self.slopeArray)
+
+    print numpy.amax(self.targetVoxels)
+    print numpy.amin(self.targetVoxels)
+
+    print numpy.amax(self.dicomDataNumpyArrays[0])
+    print numpy.amin(self.dicomDataNumpyArrays[0])
+
+
 
     #convert numpy to vtkImageData
     VTKTargetVoxelsImageImport =  vtk.vtkImageImport()
@@ -204,7 +216,7 @@ class AutoSegmentationLogic(ScriptedLoadableModuleLogic):
     #         targetVoxels[x,y,z] = 0
     # return targetVoxels
 
-    targetVoxels = (self.initialRiseArray > self.minTreshold) & (self.dicomDataNumpyArrays[0] > 10)
+    targetVoxels = (self.initialRiseArray > self.minTreshold) & (self.dicomDataNumpyArrays[0] > 0)
     return targetVoxels
 
   def getPersistanceVoxels(self):
