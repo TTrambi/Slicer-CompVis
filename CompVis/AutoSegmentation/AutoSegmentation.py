@@ -48,25 +48,69 @@ class AutoSegmentationWidget(ScriptedLoadableModuleWidget):
     # Layout for path input and process button
     self.formLayout = qt.QFormLayout(self.collapsibleButton)
 
+     # Set Advanced Parameters Collapsible Button
+    self.parametersCollapsibleButton = ctk.ctkCollapsibleButton()
+    self.parametersCollapsibleButton.text = "Set Advanced Segmentation Parameters"
+    #self.TumorSegmentationLayout.addWidget(self.parametersCollapsibleButton)
+    self.formLayout.addWidget(self.parametersCollapsibleButton)
+    self.parametersCollapsibleButton.collapsed = True
+    # Layout within the collapsible button
+    self.parametersLayout = qt.QFormLayout(self.parametersCollapsibleButton)
+    # Set Minimum Threshold of Percentage Increase to First Post-Contrast Image
+    self.inputMinimumThreshold = qt.QLabel("Minimum Threshold of Increase", self.parametersCollapsibleButton)
+    self.inputMinimumThreshold.setToolTip('Minimum Threshold of Percentage Increase (Pre- to First Post-contrast (Range: 10% to 150%)')
+    self.inputSelectorMinimumThreshold = qt.QDoubleSpinBox(self.parametersCollapsibleButton)
+    self.inputSelectorMinimumThreshold.setSuffix("%")
+    self.inputSelectorMinimumThreshold.singleStep = (1)
+    self.inputSelectorMinimumThreshold.minimum = (10)
+    self.inputSelectorMinimumThreshold.maximum = (150)
+    self.inputSelectorMinimumThreshold.value = (75)
+    self.inputSelectorMinimumThreshold.setToolTip('Minimum Threshold of Percentage Increase (Pre- to First Post-contrast (Range: 10% to 150%)')
+    self.parametersLayout.addRow(self.inputMinimumThreshold, self.inputSelectorMinimumThreshold)
+    # Curve 1 Type Parameters (Slopes from First to Fourth Post-Contrast Images)
+    self.inputCurve1 = qt.QLabel("Type 1 (Persistent) Curve Minimum Slope", self.parametersCollapsibleButton)
+    self.inputCurve1.setToolTip('Minimum Slope of Delayed Curve to classify as Persistent (Range: 0.02 to 0.3)')
+    self.inputSelectorCurve1 = qt.QDoubleSpinBox(self.parametersCollapsibleButton)
+    self.inputSelectorCurve1.singleStep = (0.02)
+    self.inputSelectorCurve1.minimum = (0.02)
+    self.inputSelectorCurve1.maximum = (0.3)
+    self.inputSelectorCurve1.value = (0.20)
+    self.inputSelectorCurve1.setToolTip('Minimum Slope of Delayed Curve to classify as Persistent (Range: 0.02 to 0.3)')
+    self.parametersLayout.addRow(self.inputCurve1, self.inputSelectorCurve1)
+    # Curve 3 Type Parameters (Slopes from First to Fourth Post-Contrast Images)
+    self.inputCurve3 = qt.QLabel("Type 3 (Washout) Curve Maximum Slope", self.parametersCollapsibleButton)
+    self.inputCurve3.setToolTip('Maximum Slope of Delayed Curve to classify as Washout (Range: -0.02 to -0.3)')
+    self.inputSelectorCurve3 = qt.QDoubleSpinBox(self.parametersCollapsibleButton)
+    self.inputSelectorCurve3.singleStep = (0.02)
+    self.inputSelectorCurve3.setPrefix("-")
+    self.inputSelectorCurve3.minimum = (0.02)
+    self.inputSelectorCurve3.maximum = (0.30)
+    self.inputSelectorCurve3.value = (0.20)
+    self.inputSelectorCurve3.setToolTip('Maximum Slope of Delayed Curve to classify as Washout (Range: -0.02 to -0.3)')
+    self.parametersLayout.addRow(self.inputCurve3, self.inputSelectorCurve3)
+
+
     # Path input for dicom data to analyze
     self.inputPath = qt.QFileDialog()
     self.inputPath.setFileMode(qt.QFileDialog.Directory)
 
-    #self.inputPathCtk = ctk.ctkDICOMAppWidget()
-    
+
+    #self.formLayout.addWidget(self.parametersCollapsibleButton)
     self.formLayout.addWidget(self.inputPath)
-    #self.formLayout.addWidget(self.inputPathCtk)
 
     # add vertical spacer
     self.layout.addStretch(1)
 
     # connect directory widget with function
     self.inputPath.connect('accepted()', self.createLogic)
-    #self.inputPathCtk.connect('onFileIndexed(const QString &filePath)', self.onModelSelectedInput)
+
 
   def createLogic(self):
     pathToDICOM = self.inputPath.directory().absolutePath()
-    self.logic = AutoSegmentationLogic(pathToDICOM, 0.75, 0.2, -0.2)
+    minThreshold = (self.inputSelectorMinimumThreshold.value)/(100)
+    curve3Maximum = -1 * (self.inputSelectorCurve3.value)
+    curve1Minimum = self.inputSelectorCurve1.value
+    self.logic = AutoSegmentationLogic(pathToDICOM, minThreshold, curve1Minimum, curve3Maximum)
 
 #
 # AutoSegmentationLogic
@@ -92,38 +136,31 @@ class AutoSegmentationLogic(ScriptedLoadableModuleLogic):
 
     #boolean array with targeted voxels
     self.targetVoxels = self.getTargetedVoxels()
-    
-    #self.persistenceVoxels = self.getPersistanceVoxels()
-    #self.plateauVoxels = self.getPlateauVoxels()
-    #self.washoutVoxels = self.getWashoutVoxels()
-
-    print numpy.amax(self.initialRiseArray)
-    print numpy.amin(self.initialRiseArray)
-
-    print numpy.amax(self.slopeArray)
-    print numpy.amin(self.slopeArray)
-
-    print numpy.amax(self.targetVoxels)
-    print numpy.amin(self.targetVoxels)
-
-    print numpy.amax(self.dicomDataNumpyArrays[0])
-    print numpy.amin(self.dicomDataNumpyArrays[0])
-
+    self.persistenceVoxels = self.getPersistanceVoxels()
+    self.plateauVoxels = self.getPlateauVoxels()
+    self.washoutVoxels = self.getWashoutVoxels()
 
 
     #convert numpy to vtkImageData
     VTKTargetVoxelsImageImport =  vtk.vtkImageImport()
 
-    array_string = self.targetVoxels.tostring()
+    w, d, h = self.plateauVoxels.shape
+
+    self.plateauVoxels[w-1,:,:] = 0
+    self.plateauVoxels[:,0,:] = 0
+    self.plateauVoxels[:,d-1,:] = 0
+    self.plateauVoxels[:,:,0] = 0
+    self.plateauVoxels[:,:,h-1] = 0
+    array_string = self.plateauVoxels.tostring()
+    
 
     VTKTargetVoxelsImageImport.CopyImportVoidPointer(array_string, len(array_string))
     VTKTargetVoxelsImageImport.SetDataScalarTypeToUnsignedChar()
     VTKTargetVoxelsImageImport.SetNumberOfScalarComponents(1)
 
-    w, d, h = self.targetVoxels.shape
-    VTKTargetVoxelsImageImport.SetDataExtent(0,w-1,0,d-1,0,h-1)
-    VTKTargetVoxelsImageImport.SetWholeExtent(0,w-1,0,d-1,0,h-1)
-    VTKTargetVoxelsImageImport.SetDataSpacing(0.1,0.1,0.2)
+    VTKTargetVoxelsImageImport.SetDataExtent(0,h-1,0,d-1,0,w-1)
+    VTKTargetVoxelsImageImport.SetWholeExtent(0,h-1,0,d-1,0,w-1)
+    VTKTargetVoxelsImageImport.SetDataSpacing(1,1,1)
 
 
 
@@ -151,6 +188,14 @@ class AutoSegmentationLogic(ScriptedLoadableModuleLogic):
     writer.Write()
 
     logging.info("finished writing to file")
+
+    self.modelNode = slicer.vtkMRMLModelNode()
+    #self.modelNode.SetAndObservePolyData(dmc.GetOutput())
+    self.modelNode.SetPolyDataConnection(dmc.GetOutputPort())
+    slicer.mrmlScene.AddNode(self.modelNode)
+
+    #self.volNode.UpdateScene()
+
 
   def readData(self):
     filesDCM = []
@@ -205,18 +250,7 @@ class AutoSegmentationLogic(ScriptedLoadableModuleLogic):
     return (self.dicomDataNumpyArrays[-1] - self.dicomDataNumpyArrays[1]).__truediv__(self.dicomDataNumpyArrays[1]+1.0)
 
   def getTargetedVoxels(self):
-    # x, y, z = self.dicomDataNumpyArrays[0].shape
-    # targetVoxels = numpy.zeros((x,y,z))
-    # for x in range(0,x-1):
-    #   for y in range(0,y-1):
-    #     for z in range(0,z-1):
-    #       if (self.initialRiseArray[x,y,z] > self.minTreshold):
-    #         targetVoxels[x,y,z] = self.dicomDataNumpyArrays[0][x,y,z]
-    #       else:
-    #         targetVoxels[x,y,z] = 0
-    # return targetVoxels
-
-    targetVoxels = (self.initialRiseArray > self.minTreshold) & (self.dicomDataNumpyArrays[0] > 0)
+    targetVoxels = (self.initialRiseArray > self.minTreshold) & (self.dicomDataNumpyArrays[0] > self.minTreshold)
     return targetVoxels
 
   def getPersistanceVoxels(self):
@@ -232,30 +266,12 @@ class AutoSegmentationLogic(ScriptedLoadableModuleLogic):
     #return persistenceVoxels
 
   def getPlateauVoxels(self):
-    plateuaVoxels = numpy.where( (self.slopeArray > self.curve3Maximum) & (self.slopeArray < self.curve1Minimum) & (self.targetVoxels) )
+    plateauVoxels = (self.slopeArray > self.curve3Maximum) & (self.slopeArray < self.curve1Minimum) & (self.targetVoxels)
     return plateauVoxels
 
   def getWashoutVoxels(self):
     washoutVoxels = numpy.where((self.slopeArray < self.curve3Maximum) & (self.targetVoxels))
     return washoutVoxels
-
-
-
-  # def arrayProcessing(self):
-  #   # Create Boolean array, target_voxels, with target voxel indices highlighted as True 
-  #   # Assigns color to SegmentCAD Label map index if corresponding slope condition is satisfied where target_voxel is True 
-      
-  #   target_voxels = (self.nodeArrayInitialRise > self.minTreshold) & (self.dicomNumpyArrays[0] > 100)
-  
-  #   # yellow (Plateau Slope)
-  #   self.nodeArraySegmentCADLabel[numpy.where( (self.slopeArray1_4 > -0.2) & (self.slopeArray1_4 < 0.2) & (target_voxels) )] = 291
-    
-  #   # blue (slope of curve1 min = 0.2(default), Persistent Slope)
-  #   self.nodeArraySegmentCADLabel[numpy.where((self.slopeArray1_4 > 0.2) & (target_voxels))] = 306
-    
-  #   # red (slope of curve3 max = -0.2(default), Washout Slope )
-  #   self.nodeArraySegmentCADLabel[numpy.where((self.slopeArray1_4 < -0.2) & (target_voxels))] = 32
-
 
 
   ### helper and converter functions ###
@@ -267,13 +283,6 @@ class AutoSegmentationLogic(ScriptedLoadableModuleLogic):
     for dicomData in dicomSeries:
       numpyArray[:,:, dicomSeries.index(dicomData)] = dicomData.pixel_array
     return numpyArray
-
-  def numpyArraytoNumpyBooleanArray(self, numpyArray):
-    numpyBooleanArray = numpyArray > 0
-    numpyBooleanArray.astype(numpy.Boolean)
-
-  def numpyBooleanArrayToMesh(self, numpyBooleanArray):
-    VTK_data = numpy_support.numpy_to_vtk(numpyBooleanArray.ravel(), deep=True, array_type=vtk.VTK_BOOLEAN)
 
 
 #
