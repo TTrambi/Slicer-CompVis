@@ -9,6 +9,7 @@ import logging
 import dicom
 import numpy
 from vtk.util import numpy_support
+import math
 
 #
 # AutoSegmentation
@@ -63,8 +64,8 @@ class AutoSegmentationWidget(ScriptedLoadableModuleWidget):
     self.inputSelectorMinimumThreshold.setSuffix("%")
     self.inputSelectorMinimumThreshold.singleStep = (1)
     self.inputSelectorMinimumThreshold.minimum = (10)
-    self.inputSelectorMinimumThreshold.maximum = (150)
-    self.inputSelectorMinimumThreshold.value = (75)
+    self.inputSelectorMinimumThreshold.maximum = (1000)
+    self.inputSelectorMinimumThreshold.value = (200)
     self.inputSelectorMinimumThreshold.setToolTip('Minimum Threshold of Percentage Increase (Pre- to First Post-contrast (Range: 10% to 150%)')
     self.parametersLayout.addRow(self.inputMinimumThreshold, self.inputSelectorMinimumThreshold)
     # Curve 1 Type Parameters (Slopes from First to Fourth Post-Contrast Images)
@@ -73,7 +74,7 @@ class AutoSegmentationWidget(ScriptedLoadableModuleWidget):
     self.inputSelectorCurve1 = qt.QDoubleSpinBox(self.parametersCollapsibleButton)
     self.inputSelectorCurve1.singleStep = (0.02)
     self.inputSelectorCurve1.minimum = (0.02)
-    self.inputSelectorCurve1.maximum = (0.3)
+    self.inputSelectorCurve1.maximum = (0.50)
     self.inputSelectorCurve1.value = (0.20)
     self.inputSelectorCurve1.setToolTip('Minimum Slope of Delayed Curve to classify as Persistent (Range: 0.02 to 0.3)')
     self.parametersLayout.addRow(self.inputCurve1, self.inputSelectorCurve1)
@@ -84,7 +85,7 @@ class AutoSegmentationWidget(ScriptedLoadableModuleWidget):
     self.inputSelectorCurve3.singleStep = (0.02)
     self.inputSelectorCurve3.setPrefix("-")
     self.inputSelectorCurve3.minimum = (0.02)
-    self.inputSelectorCurve3.maximum = (0.30)
+    self.inputSelectorCurve3.maximum = (0.50)
     self.inputSelectorCurve3.value = (0.20)
     self.inputSelectorCurve3.setToolTip('Maximum Slope of Delayed Curve to classify as Washout (Range: -0.02 to -0.3)')
     self.parametersLayout.addRow(self.inputCurve3, self.inputSelectorCurve3)
@@ -140,61 +141,16 @@ class AutoSegmentationLogic(ScriptedLoadableModuleLogic):
     self.plateauVoxels = self.getPlateauVoxels()
     self.washoutVoxels = self.getWashoutVoxels()
 
-
-    #convert numpy to vtkImageData
-    VTKTargetVoxelsImageImport =  vtk.vtkImageImport()
-
-    w, d, h = self.plateauVoxels.shape
-
-    self.plateauVoxels[w-1,:,:] = 0
-    self.plateauVoxels[:,0,:] = 0
-    self.plateauVoxels[:,d-1,:] = 0
-    self.plateauVoxels[:,:,0] = 0
-    self.plateauVoxels[:,:,h-1] = 0
-    array_string = self.plateauVoxels.tostring()
-    
-
-    VTKTargetVoxelsImageImport.CopyImportVoidPointer(array_string, len(array_string))
-    VTKTargetVoxelsImageImport.SetDataScalarTypeToUnsignedChar()
-    VTKTargetVoxelsImageImport.SetNumberOfScalarComponents(1)
-
-    VTKTargetVoxelsImageImport.SetDataExtent(0,h-1,0,d-1,0,w-1)
-    VTKTargetVoxelsImageImport.SetWholeExtent(0,h-1,0,d-1,0,w-1)
-    VTKTargetVoxelsImageImport.SetDataSpacing(1,1,1)
+    self.createAndSaveVolume(self.persistenceVoxels, "persistence.stl")
+    self.createAndSaveVolume(self.plateauVoxels, "plateau.stl")
+    self.createAndSaveVolume(self.washoutVoxels, "washout.stl")
 
 
-
-    logging.info("imageImporter set up")
-
-    threshold = vtk.vtkImageThreshold()
-    threshold.SetInputConnection(VTKTargetVoxelsImageImport.GetOutputPort())
-    threshold.ThresholdByLower(0)
-    threshold.ReplaceInOn()
-    threshold.SetInValue(0)
-    threshold.SetOutValue(1)
-    threshold.Update()
-    
-    dmc = vtk.vtkDiscreteMarchingCubes()
-    dmc.SetInputConnection(threshold.GetOutputPort())
-    dmc.GenerateValues(1,1,1)
-    dmc.Update()
-
-    logging.info("marching curbes applied")
-
-    writer = vtk.vtkSTLWriter()
-    writer.SetInputConnection(dmc.GetOutputPort())
-    writer.SetFileTypeToBinary()
-    writer.SetFileName("test.stl")
-    writer.Write()
-
-    logging.info("finished writing to file")
-
-    self.modelNode = slicer.vtkMRMLModelNode()
+    #self.modelNode = slicer.vtkMRMLModelNode()
     #self.modelNode.SetAndObservePolyData(dmc.GetOutput())
-    self.modelNode.SetPolyDataConnection(dmc.GetOutputPort())
-    slicer.mrmlScene.AddNode(self.modelNode)
-
-    #self.volNode.UpdateScene()
+    #self.modelNode.SetPolyDataConnection(dmc.GetOutputPort())
+    #slicer.mrmlScene.AddNode(self.modelNode)
+    
 
 
   def readData(self):
@@ -254,25 +210,80 @@ class AutoSegmentationLogic(ScriptedLoadableModuleLogic):
     return targetVoxels
 
   def getPersistanceVoxels(self):
-    persistenceVoxels = numpy.zeros((256,256,60))
-    for x in range(0,255):
-      for y in range(0,255):
-        for z in range(0,59):
-          if (self.slopeArray[x,y,z] > self.curve3Maximum) & (self.slopeArray[x,y,z] < self.curve1Minimum) & (self.targetVoxels[x,y,z] > 100):
-            persistenceVoxels[x,y,z] = 100
+    persistenceVoxels = (self.slopeArray > self.curve1Minimum) & (self.targetVoxels)
     return persistenceVoxels
-
-    #persistenceVoxels = numpy.where((self.slopeArray > self.curve1Minimum) & (self.targetVoxels))
-    #return persistenceVoxels
 
   def getPlateauVoxels(self):
     plateauVoxels = (self.slopeArray > self.curve3Maximum) & (self.slopeArray < self.curve1Minimum) & (self.targetVoxels)
     return plateauVoxels
 
   def getWashoutVoxels(self):
-    washoutVoxels = numpy.where((self.slopeArray < self.curve3Maximum) & (self.targetVoxels))
+    washoutVoxels = (self.slopeArray < self.curve3Maximum) & (self.targetVoxels)
     return washoutVoxels
 
+
+  def createAndSaveVolume(self, numpyBoolArray, name):
+    #convert numpy to vtkImageData
+    VTKTargetVoxelsImageImport =  vtk.vtkImageImport()
+
+    w, d, h = numpyBoolArray.shape
+
+    numpyBoolArray[w-1,:,:] = 0
+    numpyBoolArray[:,0,:] = 0
+    numpyBoolArray[:,d-1,:] = 0
+    numpyBoolArray[:,:,0] = 0
+    numpyBoolArray[:,:,h-1] = 0
+    array_string = numpyBoolArray.tostring()
+    
+
+    VTKTargetVoxelsImageImport.CopyImportVoidPointer(array_string, len(array_string))
+    VTKTargetVoxelsImageImport.SetDataScalarTypeToUnsignedChar()
+    VTKTargetVoxelsImageImport.SetNumberOfScalarComponents(1)
+
+    VTKTargetVoxelsImageImport.SetDataExtent(0,h-1,0,d-1,0,w-1)
+    VTKTargetVoxelsImageImport.SetWholeExtent(0,h-1,0,d-1,0,w-1)
+    VTKTargetVoxelsImageImport.SetDataSpacing(1,1,1)
+
+
+
+    logging.info("imageImporter set up")
+
+    threshold = vtk.vtkImageThreshold()
+    threshold.SetInputConnection(VTKTargetVoxelsImageImport.GetOutputPort())
+    threshold.ThresholdByLower(0)
+    threshold.ReplaceInOn()
+    threshold.SetInValue(0)
+    threshold.SetOutValue(1)
+    threshold.Update()
+    
+    dmc = vtk.vtkDiscreteMarchingCubes()
+    dmc.SetInputConnection(threshold.GetOutputPort())
+    dmc.GenerateValues(1,1,1)
+    dmc.Update()
+
+
+    logging.info("marching curbes applied")
+
+    # smoothVolume = vtk.vtkSmoothPolyDataFilter()
+    # smoothVolume.SetInputConnection(dmc.GetOutputPort())
+    # smoothVolume.SetNumberOfIterations(5)
+    # smoothVolume.SetRelaxationFactor(0.5)
+    # smoothVolume.FeatureEdgeSmoothingOff()
+    # smoothVolume.BoundarySmoothingOn()
+    # smoothVolume.Update()
+
+    #biggestArea = vtk.vtkPolyDataConnectivityFilter()
+    #biggestArea.SetInputConnection(dmc.GetOutputPort())
+    #biggestArea.SetExtractionModeToLargestRegion()
+    #biggestArea.Update()
+
+    writer = vtk.vtkSTLWriter()
+    writer.SetInputConnection(dmc.GetOutputPort())
+    writer.SetFileTypeToBinary()
+    writer.SetFileName(name)
+    writer.Write()
+
+    logging.info("finished writing to file")
 
   ### helper and converter functions ###
   def createNumpyArray(self, dicomSeries):
