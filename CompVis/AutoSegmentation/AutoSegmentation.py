@@ -1,97 +1,72 @@
 import os
 import unittest
-import vtk
-import qt
-import ctk
-import slicer
+import numpy
+import vtk, qt, ctk, slicer
 from slicer.ScriptedLoadableModule import *
 import logging
 import dicom
-import numpy
-from vtk.util import numpy_support
-import qt
-import __main__
-
-
-
-
+from slicer.util import VTKObservationMixin
 
 #
-# AutoSegmentation
+# AutoSegmentationSliceletWidget
 #
-class AutoSegmentation(ScriptedLoadableModule):
-  def __init__(self, parent):
-    ScriptedLoadableModule.__init__(self, parent)
-    # TODO make this more human readable by adding spaces
-    self.parent.title = "AutoSegmentation"
-    self.parent.categories = ["Examples"]
-    self.parent.dependencies = []
-    self.parent.contributors = ["Thomas Tramberger (TU Wien)"]
-    self.parent.helpText = """
-    This is an example of scripted loadable module bundled in an extension. It performs a simple thresholding on the input volume and optionally captures a screenshot.
-    """
-    self.parent.acknowledgementText = """
-    This file was originally developed by Jean-Christophe Fillion-Robin, Kitware Inc.
-    and Steve Pieper, Isomics, Inc. and was partially funded by NIH grant 3P41RR013218-12S1.
-"""  # replace with organization, grant and thanks.
+class AutoSegmentationSliceletWidget:
+  def __init__(self, parent=None):
+    try:
+      parent
+      self.parent = parent
+
+    except Exception, e:
+      import traceback
+      traceback.print_exc()
+      logging.error("There is no parent to AutoSegmentationSliceletWidget!")
 
 #
-# AutoSegmentationWidget
+# SliceletMainFrame
+#   Handles the event when the slicelet is hidden (its window closed)
 #
-class AutoSegmentationWidget(ScriptedLoadableModuleWidget):
-  """Uses ScriptedLoadableModuleWidget base class, available at:
-  https://github.com/Slicer/Slicer/blob/master/Base/Python/slicer/ScriptedLoadableModule.py
-  """
-  def setup(self):
-    # gui for testing and reloading, /todo remove at end
-    ScriptedLoadableModuleWidget.setup(self)
+class SliceletMainFrame(qt.QDialog):
+  def setSlicelet(self, slicelet):
+    self.slicelet = slicelet
 
-    # mainWidget = qt.QWidget()
-    # vlayout = qt.QVBoxLayout()
-    # mainWidget.setLayout(vlayout)
+  def hideEvent(self, event):
+    self.slicelet.disconnect()
 
-    # layoutManager = slicer.qMRMLLayoutWidget()
-    # layoutManager.setMRMLScene(slicer.mrmlScene)
-    # layoutManager.setLayout(slicer.vtkMRMLLayoutNode.SlicerLayoutOneUp3DView)
-    # vlayout.addWidget(layoutManager)
+    import gc
+    refs = gc.get_referrers(self.slicelet)
+    if len(refs) > 1:
+      # logging.debug('Stuck slicelet references (' + repr(len(refs)) + '):\n' + repr(refs))
+      pass
 
-    # hlayout = qt.QHBoxLayout()
-    # vlayout.addLayout(hlayout)
+    slicer.autoSegmentationSliceletInstance = None
+    self.slicelet = None
+    self.deleteLater()
 
-    # loadDataButton = qt.QPushButton("Load Data")
-    # hlayout.addWidget(loadDataButton)
-    # loadDataButton.connect('clicked()', slicer.util.openAddVolumeDialog)
+# 
+# GelDosimetryAnalysisSlicelet
+#
+class AutoSegmentationSlicelet(VTKObservationMixin):
+  def __init__(self, parent, developerMode=False, widgetClass=None):
+    VTKObservationMixin.__init__(self)
+    # Set up main frame
+    self.parent = parent
+    self.parent.setLayout(qt.QHBoxLayout())
 
-    # saveDataButton = qt.QPushButton("Save Data")
-    # hlayout.addWidget(saveDataButton)
-    # saveDataButton.connect('clicked()', slicer.util.openSaveDataDialog)
+    self.layout = self.parent.layout()
+    self.layout.setMargin(0)
+    self.layout.setSpacing(0)
 
-    # moduleSelector = slicer.qSlicerModuleSelectorToolBar()sc
-    # moduleSelector.setModuleManager(slicer.app.moduleManager())
-    # hlayout.addWidget(moduleSelector)
-    # moduleSelector.connect('moduleSelected(QString)', onModuleSelected)
+    self.sliceletPanel = qt.QFrame(self.parent)
+    self.sliceletPanelLayout = qt.QVBoxLayout(self.sliceletPanel)
+    self.sliceletPanelLayout.setMargin(4)
+    self.sliceletPanelLayout.setSpacing(0)
+    self.layout.addWidget(self.sliceletPanel,1)
 
-    # tabWidget = qt.QTabWidget()
-    # vlayout.addWidget(tabWidget)
-
-    # mainWidget.show()
-
-    # __main__.mainWidget = mainWidget
-
-    # Collapsible button
-    self.collapsibleButton = ctk.ctkCollapsibleButton()
-    self.collapsibleButton.text = "AutoSegmentation"
-    self.layout.addWidget(self.collapsibleButton)
-
-    # Layout for path input and process button
-    self.formLayout = qt.QFormLayout(self.collapsibleButton)
-
-     # Set Advanced Parameters Collapsible Button
+    #Set Advanced Parameters Collapsible Button
     self.parametersCollapsibleButton = ctk.ctkCollapsibleButton()
     self.parametersCollapsibleButton.text = "Set Advanced Segmentation Parameters"
-    #self.TumorSegmentationLayout.addWidget(self.parametersCollapsibleButton)
-    self.formLayout.addWidget(self.parametersCollapsibleButton)
     self.parametersCollapsibleButton.collapsed = True
+    self.sliceletPanelLayout.addWidget(self.parametersCollapsibleButton)
     # Layout within the collapsible button
     self.parametersLayout = qt.QFormLayout(self.parametersCollapsibleButton)
     # Set Minimum Threshold of Percentage Increase to First Post-Contrast Image
@@ -127,21 +102,23 @@ class AutoSegmentationWidget(ScriptedLoadableModuleWidget):
     self.inputSelectorCurve3.setToolTip('Maximum Slope of Delayed Curve to classify as Washout (Range: -0.02 to -0.3)')
     self.parametersLayout.addRow(self.inputCurve3, self.inputSelectorCurve3)
 
-
     # Path input for dicom data to analyze
     self.inputPath = qt.QFileDialog()
     self.inputPath.setFileMode(qt.QFileDialog.Directory)
-
-
-    #self.formLayout.addWidget(self.parametersCollapsibleButton)
-    self.formLayout.addWidget(self.inputPath)
-
-    # add vertical spacer
-    self.layout.addStretch(1)
-
-    # connect directory widget with function
+    self.sliceletPanelLayout.addWidget(self.inputPath)
     self.inputPath.connect('accepted()', self.createLogic)
 
+
+    ##############
+    self.layoutWidget = slicer.qMRMLLayoutWidget()
+    self.layoutWidget.setMRMLScene(slicer.mrmlScene)
+    self.layoutWidget.setLayout(slicer.vtkMRMLLayoutNode.SlicerLayoutOneUp3DView)
+    self.layout.addWidget(self.layoutWidget,2)
+
+
+    if widgetClass:
+      self.widget = widgetClass(self.parent)
+    self.parent.show()
 
   def createLogic(self):
     pathToDICOM = self.inputPath.directory().absolutePath()
@@ -149,6 +126,74 @@ class AutoSegmentationWidget(ScriptedLoadableModuleWidget):
     curve3Maximum = -1 * (self.inputSelectorCurve3.value)
     curve1Minimum = self.inputSelectorCurve1.value
     self.logic = AutoSegmentationLogic(pathToDICOM, minThreshold, curve1Minimum, curve3Maximum)
+
+  def disconnect(self):
+    logging.debug("disconnecting")
+    #asdf
+    #asdf
+
+
+#
+# AutoSegmentation
+#
+class AutoSegmentation(ScriptedLoadableModule):
+  def __init__(self, parent):
+    ScriptedLoadableModule.__init__(self, parent)
+    # TODO make this more human readable by adding spaces
+    self.parent.title = "AutoSegmentation"
+    self.parent.categories = ["Examples"]
+    self.parent.dependencies = []
+    self.parent.contributors = ["Thomas Tramberger (TU Wien)"]
+    self.parent.helpText = """
+    This is an example of scripted loadable module bundled in an extension. It performs a simple thresholding on the input volume and optionally captures a screenshot.
+    """
+    self.parent.acknowledgementText = """
+    This file was originally developed by Jean-Christophe Fillion-Robin, Kitware Inc.
+    and Steve Pieper, Isomics, Inc. and was partially funded by NIH grant 3P41RR013218-12S1.
+"""  # replace with organization, grant and thanks.
+
+#
+# AutoSegmentationWidget
+#
+class AutoSegmentationWidget(ScriptedLoadableModuleWidget):
+  """Uses ScriptedLoadableModuleWidget base class, available at:
+  https://github.com/Slicer/Slicer/blob/master/Base/Python/slicer/ScriptedLoadableModule.py
+  """
+  def setup(self):
+    # gui for testing and reloading, /todo remove at end
+    ScriptedLoadableModuleWidget.setup(self)
+
+    # Show slicelet button
+    showSliceletButton = qt.QPushButton("Show slicelet")
+    showSliceletButton.toolTip = "Launch the slicelet"
+    self.layout.addWidget(qt.QLabel(' '))
+    self.layout.addWidget(showSliceletButton)
+    showSliceletButton.connect('clicked()', self.launchSlicelet)
+
+    # Add vertical spacer
+    self.layout.addStretch(1)
+
+  def launchSlicelet(self):
+    mainFrame = SliceletMainFrame()
+    mainFrame.minimumWidth = 800
+    mainFrame.minimumHeight = 600
+    mainFrame.windowTitle = "AutoSegmentation"
+    mainFrame.setWindowFlags(qt.Qt.WindowCloseButtonHint | qt.Qt.WindowMaximizeButtonHint | qt.Qt.WindowTitleHint)
+    iconPath = os.path.join(os.path.dirname(slicer.modules.autosegmentation.path), 'Resources/Icons', self.moduleName+'.png')
+    mainFrame.windowIcon = qt.QIcon(iconPath)
+    mainFrame.connect('destroyed()', self.onSliceletClosed)
+
+    slicelet = AutoSegmentationSlicelet(mainFrame, self.developerMode)
+    mainFrame.setSlicelet(slicelet)
+
+    # Make the slicelet reachable from the Slicer python interactor for testing
+    slicer.autoSegmentationSliceletInstance = slicelet
+
+    return slicelet
+
+  def onSliceletClosed(self):
+    logging.debug('Slicelet closed')
+
 
 #
 # AutoSegmentationLogic
@@ -169,13 +214,14 @@ class AutoSegmentationLogic(ScriptedLoadableModuleLogic):
 
     #boolean array with targeted voxels
     self.targetVoxels = self.getTargetedVoxels() 
-    self.persistenceVoxels = self.getPersistanceVoxels()
-    self.plateauVoxels = self.getPlateauVoxels()
     self.washoutVoxels = self.getWashoutVoxels()
+    self.coordsOfHighestDens = numpy.unravel_index(numpy.argmax(self.dicomDataNumpyArrays[1]), self.dicomDataNumpyArrays[1].shape)
+    print self.coordsOfHighestDens
+    self.createAndSaveVolume(self.washoutVoxels, "washout.stl", self.coordsOfHighestDens)
 
     #self.createAndSaveVolume(self.persistenceVoxels, "persistence.stl")
     #self.createAndSaveVolume(self.plateauVoxels, "plateau.stl")
-    self.createAndSaveVolume(self.washoutVoxels, "washout.stl")
+
 
 
 
@@ -253,13 +299,12 @@ class AutoSegmentationLogic(ScriptedLoadableModuleLogic):
     washoutVoxels = (self.slopeArray < self.curve3Maximum) & (self.targetVoxels)
     return washoutVoxels
 
-
-  def createAndSaveVolume(self, numpyBoolArray, name):
+  def createAndSaveVolume(self, numpyBoolArray, name, seedCoordinates):
     #convert numpy to vtkImageData
     VTKTargetVoxelsImageImport =  vtk.vtkImageImport()
 
-    numpyBoolArray = numpy.flipud(numpyBoolArray)
-    numpyBoolArray = numpy.fliplr(numpyBoolArray)
+    #numpyBoolArray = numpy.flipud(numpyBoolArray)
+    #numpyBoolArray = numpy.fliplr(numpyBoolArray)
     w, d, h = numpyBoolArray.shape
 
     numpyBoolArray[w-1,:,:] = 0
@@ -301,7 +346,7 @@ class AutoSegmentationLogic(ScriptedLoadableModuleLogic):
     smoothVolume.Update()
 
 
-    slicer.modules.models.logic().AddModel(smoothVolume.GetOutputPort())
+    #slicer.modules.models.logic().AddModel(smoothVolume.GetOutputPort())
 
     #slicer.modules.models.logic().AddModel(dmc.GetOutput())
 
@@ -310,7 +355,13 @@ class AutoSegmentationLogic(ScriptedLoadableModuleLogic):
     biggestArea.SetExtractionModeToLargestRegion()
     biggestArea.Update()
 
-    #slicer.modules.models.logic().AddModel(biggestArea.GetOutputPort())
+    seededArea = vtk.vtkPolyDataConnectivityFilter()
+    seededArea.SetInputConnection(smoothVolume.GetOutputPort())
+    seededArea.SetExtractionModeToClosestPointRegion()
+    seededArea.SetClosestPoint(seedCoordinates[0], seedCoordinates[1], seedCoordinates[2])
+    seededArea.Update()
+
+    slicer.modules.models.logic().AddModel(biggestArea.GetOutputPort())
 
     #modelNode = slicer.vtkMRMLScalarVolumeNode()
     #modelNode.SetPolyDataConnection(smoothVolume.GetOutputPort())
@@ -365,60 +416,18 @@ class AutoSegmentationTest(ScriptedLoadableModuleTest):
   # def setUp(self):
    # slicer.mrmlScene.Clear(0)
 
-#
-# AutoSegmentationSliceletWidget
-#
-class AutoSegmentationSliceletWidget:
-  def __init__(self, parent=None):
-    try:
-      parent
-      self.parent = parent
-
-    except Exception, e:
-      import traceback
-      traceback.print_exc()
-      logging.error("There is no parent to GelDosimetryAnalysisSliceletWidget!")
 
 #
-# SliceletMainFrame
-#   Handles the event when the slicelet is hidden (its window closed)
+# Main
 #
-class SliceletMainFrame(qt.QDialog):
-  def setSlicelet(self, slicelet):
-    self.slicelet = slicelet
+if __name__ == "__main__":
+  #TODO: access and parse command line arguments
+  #   Example: SlicerRt/src/BatchProcessing
+  #   Ideally handle --xml
 
-  def hideEvent(self, event):
-    self.slicelet.disconnect()
+  import sys
+  logging.debug( sys.argv )
 
-    import gc
-    refs = gc.get_referrers(self.slicelet)
-    if len(refs) > 1:
-      # logging.debug('Stuck slicelet references (' + repr(len(refs)) + '):\n' + repr(refs))
-      pass
+  mainFrame = qt.QFrame()
+  slicelet = AutoSegmentationSlicelet(mainFrame)
 
-    slicer.gelDosimetrySliceletInstance = None
-    self.slicelet = None
-    self.deleteLater()
-
-#
-# GelDosimetryAnalysisSlicelet
-#
-class AutoSegmentationSlicelet(VTKObservationMixin):
-  def __init__(self, parent, developerMode=False, widgetClass=None):
-    VTKObservationMixin.__init__(self)
-    # Set up main frame
-    self.parent = parent
-    self.parent.setLayout(qt.QHBoxLayout())
-
-    self.layout = self.parent.layout()
-    self.layout.setMargin(0)
-    self.layout.setSpacing(0)
-
-    self.sliceletPanel = qt.QFrame(self.parent)
-    self.sliceletPanelLayout = qt.QVBoxLayout(self.sliceletPanel)
-    self.sliceletPanelLayout.setMargin(4)
-    self.sliceletPanelLayout.setSpacing(0)
-    self.layout.addWidget(self.sliceletPanel,1)
-
-def disconnect(self):
-    "asdf"
