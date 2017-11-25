@@ -9,7 +9,12 @@ import logging
 import dicom
 import numpy
 from vtk.util import numpy_support
-import math
+import qt
+import __main__
+
+
+
+
 
 #
 # AutoSegmentation
@@ -41,6 +46,38 @@ class AutoSegmentationWidget(ScriptedLoadableModuleWidget):
     # gui for testing and reloading, /todo remove at end
     ScriptedLoadableModuleWidget.setup(self)
 
+    # mainWidget = qt.QWidget()
+    # vlayout = qt.QVBoxLayout()
+    # mainWidget.setLayout(vlayout)
+
+    # layoutManager = slicer.qMRMLLayoutWidget()
+    # layoutManager.setMRMLScene(slicer.mrmlScene)
+    # layoutManager.setLayout(slicer.vtkMRMLLayoutNode.SlicerLayoutOneUp3DView)
+    # vlayout.addWidget(layoutManager)
+
+    # hlayout = qt.QHBoxLayout()
+    # vlayout.addLayout(hlayout)
+
+    # loadDataButton = qt.QPushButton("Load Data")
+    # hlayout.addWidget(loadDataButton)
+    # loadDataButton.connect('clicked()', slicer.util.openAddVolumeDialog)
+
+    # saveDataButton = qt.QPushButton("Save Data")
+    # hlayout.addWidget(saveDataButton)
+    # saveDataButton.connect('clicked()', slicer.util.openSaveDataDialog)
+
+    # moduleSelector = slicer.qSlicerModuleSelectorToolBar()sc
+    # moduleSelector.setModuleManager(slicer.app.moduleManager())
+    # hlayout.addWidget(moduleSelector)
+    # moduleSelector.connect('moduleSelected(QString)', onModuleSelected)
+
+    # tabWidget = qt.QTabWidget()
+    # vlayout.addWidget(tabWidget)
+
+    # mainWidget.show()
+
+    # __main__.mainWidget = mainWidget
+
     # Collapsible button
     self.collapsibleButton = ctk.ctkCollapsibleButton()
     self.collapsibleButton.text = "AutoSegmentation"
@@ -64,8 +101,8 @@ class AutoSegmentationWidget(ScriptedLoadableModuleWidget):
     self.inputSelectorMinimumThreshold.setSuffix("%")
     self.inputSelectorMinimumThreshold.singleStep = (1)
     self.inputSelectorMinimumThreshold.minimum = (10)
-    self.inputSelectorMinimumThreshold.maximum = (1000)
-    self.inputSelectorMinimumThreshold.value = (200)
+    self.inputSelectorMinimumThreshold.maximum = (150)
+    self.inputSelectorMinimumThreshold.value = (75)
     self.inputSelectorMinimumThreshold.setToolTip('Minimum Threshold of Percentage Increase (Pre- to First Post-contrast (Range: 10% to 150%)')
     self.parametersLayout.addRow(self.inputMinimumThreshold, self.inputSelectorMinimumThreshold)
     # Curve 1 Type Parameters (Slopes from First to Fourth Post-Contrast Images)
@@ -74,7 +111,7 @@ class AutoSegmentationWidget(ScriptedLoadableModuleWidget):
     self.inputSelectorCurve1 = qt.QDoubleSpinBox(self.parametersCollapsibleButton)
     self.inputSelectorCurve1.singleStep = (0.02)
     self.inputSelectorCurve1.minimum = (0.02)
-    self.inputSelectorCurve1.maximum = (0.50)
+    self.inputSelectorCurve1.maximum = (0.30)
     self.inputSelectorCurve1.value = (0.20)
     self.inputSelectorCurve1.setToolTip('Minimum Slope of Delayed Curve to classify as Persistent (Range: 0.02 to 0.3)')
     self.parametersLayout.addRow(self.inputCurve1, self.inputSelectorCurve1)
@@ -85,7 +122,7 @@ class AutoSegmentationWidget(ScriptedLoadableModuleWidget):
     self.inputSelectorCurve3.singleStep = (0.02)
     self.inputSelectorCurve3.setPrefix("-")
     self.inputSelectorCurve3.minimum = (0.02)
-    self.inputSelectorCurve3.maximum = (0.50)
+    self.inputSelectorCurve3.maximum = (0.30)
     self.inputSelectorCurve3.value = (0.20)
     self.inputSelectorCurve3.setToolTip('Maximum Slope of Delayed Curve to classify as Washout (Range: -0.02 to -0.3)')
     self.parametersLayout.addRow(self.inputCurve3, self.inputSelectorCurve3)
@@ -118,39 +155,28 @@ class AutoSegmentationWidget(ScriptedLoadableModuleWidget):
 #
 class AutoSegmentationLogic(ScriptedLoadableModuleLogic):
 
-  def __init__(self, pathToDICOM, minTreshold, curve1Minimum, curve3Maximum):
+  def __init__(self, pathToDICOM, minThreshold, curve1Minimum, curve3Maximum):
     self.pathToDICOM = pathToDICOM
-    self.minTreshold = minTreshold
+    self.minThreshold = minThreshold
     self.curve1Minimum = curve1Minimum
     self.curve3Maximum = curve3Maximum
-    logging.info("logic created")
-    logging.info("parameters:")
-    logging.info(pathToDICOM)
-    logging.info(minTreshold)
-    logging.info(curve1Minimum)
-    logging.info(curve3Maximum)
-    
+
     self.dicomDataNumpyArrays = self.readData()
     self.initialRiseArray = self.calcInitialRise()
     self.slopeArray = self.calcSlope()
-    logging.info("initial rise and slope calculated")
+
+    self.roi = self.createROI()
 
     #boolean array with targeted voxels
-    self.targetVoxels = self.getTargetedVoxels()
+    self.targetVoxels = self.getTargetedVoxels() 
     self.persistenceVoxels = self.getPersistanceVoxels()
     self.plateauVoxels = self.getPlateauVoxels()
     self.washoutVoxels = self.getWashoutVoxels()
 
-    self.createAndSaveVolume(self.persistenceVoxels, "persistence.stl")
-    self.createAndSaveVolume(self.plateauVoxels, "plateau.stl")
+    #self.createAndSaveVolume(self.persistenceVoxels, "persistence.stl")
+    #self.createAndSaveVolume(self.plateauVoxels, "plateau.stl")
     self.createAndSaveVolume(self.washoutVoxels, "washout.stl")
 
-
-    #self.modelNode = slicer.vtkMRMLModelNode()
-    #self.modelNode.SetAndObservePolyData(dmc.GetOutput())
-    #self.modelNode.SetPolyDataConnection(dmc.GetOutputPort())
-    #slicer.mrmlScene.AddNode(self.modelNode)
-    
 
 
   def readData(self):
@@ -185,28 +211,34 @@ class AutoSegmentationLogic(ScriptedLoadableModuleLogic):
     #assign last element
     dicomDataContrastVolumes[contrastVolumeIndexHelper].append(dicomData[-1])
 
-    logging.info("Dicom data seperated into %i sets.", len(dicomDataContrastVolumes))
 
     #convert sets into numpy Arrays
     dicomNumpyArrays = []
     for dicomSeries in dicomDataContrastVolumes:
       dicomNumpyArrays.append(self.createNumpyArray(dicomSeries))
 
-    logging.info("3D Numpy Arrays created")
 
     return dicomNumpyArrays
 
   # Computes percentage increase from baseline (pre-contrast) at each voxel for each volume as numpy arrays.
   def calcInitialRise(self):
     # Initial Rise at each voxel (percentage increase from pre-contrast to first post-contrast)
-    return ((self.dicomDataNumpyArrays[1]).__truediv__(self.dicomDataNumpyArrays[0]+1.0))-1.0
+
+    temp = numpy.divide((self.dicomDataNumpyArrays[1] - self.dicomDataNumpyArrays[0]), self.dicomDataNumpyArrays[0])
+    temp = numpy.nan_to_num(temp)
+    return temp
+    #return ((self.dicomDataNumpyArrays[1]).__truediv__(self.dicomDataNumpyArrays[0]+1.0))-1.0
 
   def calcSlope(self):
     # Compute slope at each voxel from first to fourth volume to determine curve type
-    return (self.dicomDataNumpyArrays[-1] - self.dicomDataNumpyArrays[1]).__truediv__(self.dicomDataNumpyArrays[1]+1.0)
+    temp = numpy.divide((self.dicomDataNumpyArrays[-1] - self.dicomDataNumpyArrays[1]), self.dicomDataNumpyArrays[1])
+    temp = numpy.nan_to_num(temp)
+    return temp
+    #return (self.dicomDataNumpyArrays[-1] - self.dicomDataNumpyArrays[1]).__truediv__(self.dicomDataNumpyArrays[1]+1.0)
 
   def getTargetedVoxels(self):
-    targetVoxels = (self.initialRiseArray > self.minTreshold) & (self.dicomDataNumpyArrays[0] > self.minTreshold)
+    targetVoxels = (self.initialRiseArray > self.minThreshold) & (self.dicomDataNumpyArrays[0] > 20)
+    targetVoxels = targetVoxels & self.roi
     return targetVoxels
 
   def getPersistanceVoxels(self):
@@ -226,6 +258,8 @@ class AutoSegmentationLogic(ScriptedLoadableModuleLogic):
     #convert numpy to vtkImageData
     VTKTargetVoxelsImageImport =  vtk.vtkImageImport()
 
+    numpyBoolArray = numpy.flipud(numpyBoolArray)
+    numpyBoolArray = numpy.fliplr(numpyBoolArray)
     w, d, h = numpyBoolArray.shape
 
     numpyBoolArray[w-1,:,:] = 0
@@ -245,9 +279,6 @@ class AutoSegmentationLogic(ScriptedLoadableModuleLogic):
     VTKTargetVoxelsImageImport.SetDataSpacing(1,1,1)
 
 
-
-    logging.info("imageImporter set up")
-
     threshold = vtk.vtkImageThreshold()
     threshold.SetInputConnection(VTKTargetVoxelsImageImport.GetOutputPort())
     threshold.ThresholdByLower(0)
@@ -261,24 +292,33 @@ class AutoSegmentationLogic(ScriptedLoadableModuleLogic):
     dmc.GenerateValues(1,1,1)
     dmc.Update()
 
+    smoothVolume = vtk.vtkSmoothPolyDataFilter()
+    smoothVolume.SetInputConnection(dmc.GetOutputPort())
+    smoothVolume.SetNumberOfIterations(1)
+    smoothVolume.SetRelaxationFactor(0.5)
+    smoothVolume.FeatureEdgeSmoothingOff()
+    smoothVolume.BoundarySmoothingOn()
+    smoothVolume.Update()
 
-    logging.info("marching curbes applied")
 
-    # smoothVolume = vtk.vtkSmoothPolyDataFilter()
-    # smoothVolume.SetInputConnection(dmc.GetOutputPort())
-    # smoothVolume.SetNumberOfIterations(5)
-    # smoothVolume.SetRelaxationFactor(0.5)
-    # smoothVolume.FeatureEdgeSmoothingOff()
-    # smoothVolume.BoundarySmoothingOn()
-    # smoothVolume.Update()
+    slicer.modules.models.logic().AddModel(smoothVolume.GetOutputPort())
 
-    #biggestArea = vtk.vtkPolyDataConnectivityFilter()
-    #biggestArea.SetInputConnection(dmc.GetOutputPort())
-    #biggestArea.SetExtractionModeToLargestRegion()
-    #biggestArea.Update()
+    #slicer.modules.models.logic().AddModel(dmc.GetOutput())
+
+    biggestArea = vtk.vtkPolyDataConnectivityFilter()
+    biggestArea.SetInputConnection(smoothVolume.GetOutputPort())
+    biggestArea.SetExtractionModeToLargestRegion()
+    biggestArea.Update()
+
+    #slicer.modules.models.logic().AddModel(biggestArea.GetOutputPort())
+
+    #modelNode = slicer.vtkMRMLScalarVolumeNode()
+    #modelNode.SetPolyDataConnection(smoothVolume.GetOutputPort())
+    #slicer.mrmlScene.AddNode(modelNode)
+    #slicer.mrmlScene.SetAndObserveMRMLScene()
 
     writer = vtk.vtkSTLWriter()
-    writer.SetInputConnection(dmc.GetOutputPort())
+    writer.SetInputConnection(smoothVolume.GetOutputPort())
     writer.SetFileTypeToBinary()
     writer.SetFileName(name)
     writer.Write()
@@ -295,6 +335,22 @@ class AutoSegmentationLogic(ScriptedLoadableModuleLogic):
       numpyArray[:,:, dicomSeries.index(dicomData)] = dicomData.pixel_array
     return numpyArray
 
+  def createROI(self):
+    roi = numpy.zeros(self.dicomDataNumpyArrays[0].shape)
+    thresholdedArray = (self.dicomDataNumpyArrays[0] > 20)
+
+    firstValue = 0
+    y, x, z = roi.shape
+
+
+    for i in xrange(0, x-1):
+      if thresholdedArray[255, i, 29] == True:
+        firstValue = i
+        break
+
+    roi[:,0:firstValue,:] = True
+
+    return roi.astype('bool_')
 
 #
 # AutoSegmentationLogic
@@ -308,3 +364,61 @@ class AutoSegmentationTest(ScriptedLoadableModuleTest):
 
   # def setUp(self):
    # slicer.mrmlScene.Clear(0)
+
+#
+# AutoSegmentationSliceletWidget
+#
+class AutoSegmentationSliceletWidget:
+  def __init__(self, parent=None):
+    try:
+      parent
+      self.parent = parent
+
+    except Exception, e:
+      import traceback
+      traceback.print_exc()
+      logging.error("There is no parent to GelDosimetryAnalysisSliceletWidget!")
+
+#
+# SliceletMainFrame
+#   Handles the event when the slicelet is hidden (its window closed)
+#
+class SliceletMainFrame(qt.QDialog):
+  def setSlicelet(self, slicelet):
+    self.slicelet = slicelet
+
+  def hideEvent(self, event):
+    self.slicelet.disconnect()
+
+    import gc
+    refs = gc.get_referrers(self.slicelet)
+    if len(refs) > 1:
+      # logging.debug('Stuck slicelet references (' + repr(len(refs)) + '):\n' + repr(refs))
+      pass
+
+    slicer.gelDosimetrySliceletInstance = None
+    self.slicelet = None
+    self.deleteLater()
+
+#
+# GelDosimetryAnalysisSlicelet
+#
+class AutoSegmentationSlicelet(VTKObservationMixin):
+  def __init__(self, parent, developerMode=False, widgetClass=None):
+    VTKObservationMixin.__init__(self)
+    # Set up main frame
+    self.parent = parent
+    self.parent.setLayout(qt.QHBoxLayout())
+
+    self.layout = self.parent.layout()
+    self.layout.setMargin(0)
+    self.layout.setSpacing(0)
+
+    self.sliceletPanel = qt.QFrame(self.parent)
+    self.sliceletPanelLayout = qt.QVBoxLayout(self.sliceletPanel)
+    self.sliceletPanelLayout.setMargin(4)
+    self.sliceletPanelLayout.setSpacing(0)
+    self.layout.addWidget(self.sliceletPanel,1)
+
+def disconnect(self):
+    "asdf"
